@@ -1,0 +1,262 @@
+---
+- hosts: masters, workers
+  name: Setup masters and workers node
+  remote_user: ci
+  become: true
+  vars:
+    k8s_version: 1.29.0
+  tasks:
+
+    - name: Update apt package index
+      apt:
+        update_cache: yes
+
+# Config container runtime (containerd)
+    - name: Disable swap
+      shell: swapoff -a
+
+    - name: Remove swap entry from /etc.fstab
+      lineinfile:
+        dest: /etc/fstab
+        regexp: swap
+        state: absent
+
+    - name: Configure modules for containerd
+      shell: |
+        cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+        overlay
+        br_netfilter
+        EOF
+        modprobe overlay
+        modprobe br_netfilter
+
+    - name: Configure iptables to see bridged traffic
+      shell: |
+        cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+        net.bridge.bridge-nf-call-iptables  = 1
+        net.bridge.bridge-nf-call-ip6tables = 1
+        net.ipv4.ip_forward                 = 1
+        EOF
+
+    - name: Apply sysctl params without reboot
+      shell: sysctl --system
+
+    - name: Install packages to allow apt to use a repository over HTTPS
+      apt:
+        name:
+          - ca-certificates
+          - gnupg
+          - apt-transport-https
+          - curl
+          - gnupg2
+          - software-properties-common
+          - lsb-release
+        state: present
+        update_cache: yes
+
+    - name: Create directory keyring
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Download Docker GPG key
+      get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker-apt-keyring.asc
+        mode: "0644"
+        force: true
+
+    - name: Add Docker's APT repository
+      apt_repository:
+        repo: "deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }} signed-by=/etc/apt/keyrings/docker-apt-keyring.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        filename: docker.list
+        state: present
+#v1.30
+#    - name: Download Kubernetes GPG key
+#      get_url:
+#        url: https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key
+#        dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+#        mode: "0644"
+#
+#    - name: Add Kubernetes apt repository
+#      apt_repository:
+#        repo: deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /
+#        state: present
+    - name: Add Kubernetes apt-key
+      get_url:
+        url: https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key
+        dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+        mode: "0644"
+        force: true
+
+    - name: Add Kubernetes APT repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /"
+        state: present
+        update_cache: yes
+
+    - name: Install containerd
+      apt:
+        name: containerd.io
+        state: present
+
+    - name: Create containerd directory
+      file:
+        path: /etc/containerd
+        state: directory
+
+    - name: Add containerd configuration
+      shell: /usr/bin/containerd config default > /etc/containerd/config.toml
+
+    - name: Set SystemdCgroup to true in containerd config
+      lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^(\s*)SystemdCgroup\s*=\s*(true|false)'
+        line: '\1SystemdCgroup = true'
+        backrefs: yes
+
+    - name: Update apt package index after adding Kubernetes repository
+      apt:
+        update_cache: yes
+
+    - name: Enable the containerd service and start service
+      systemd:
+        name: containerd
+        state: restarted
+        enabled: yes
+        daemon-reload: yes
+
+    - name: Install kubelet, kubeadm and kubectl
+      apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+
+    - name: Pin the version of kubelet, kubeadm and kubectl
+      command: |
+        apt-mark hold kubelet kubeadm kubectl
+
+    - name: Enable and start kubelet service
+      systemd:
+        name: kubelet
+        state: started
+        enabled: yes
+
+
+
+- hosts: masters
+  remote_user: ci
+  become: yes
+  vars:
+    control_plane_endpoint: 192.168.56.11
+  tasks:
+
+    - name: Create an Empty file for Kubeadm configuring
+      copy:
+        content: ""
+        dest: /etc/kubernetes/kubeadm-config.yaml
+        force: no
+
+    - name: Configure container runtime
+      blockinfile:
+        path: /etc/kubernetes/kubeadm-config.yaml
+        block: |
+          kind: ClusterConfiguration
+          apiVersion: kubeadm.k8s.io/v1beta3
+          networking:
+            podSubnet: "10.244.0.0/16"
+          ---
+          kind: KubeletConfiguration
+          apiVersion: kubelet.config.k8s.io/v1beta1
+          runtimeRequestTimeout: "15m"
+          cgroupDriver: "systemd"
+          systemReserved:
+            cpu: 100m
+            memory: 350M
+          kubeReserved:
+            cpu: 100m
+            memory: 50M
+          enforceNodeAllocatable:
+          - pods
+
+    - name: Initialize the cluster
+      shell: kubeadm init --control-plane-endpoint={{ control_plane_endpoint }}:6443 --upload-certs --apiserver-advertise-address={{ control_plane_endpoint }} --pod-network-cidr=10.244.0.0/16 >> cluster_initialized.log
+      args:
+        chdir: /home/ci
+        creates: cluster_initialized.log
+
+    - name: Create .kube directory
+      become: yes
+      become_user: ci
+      file:
+        path: $HOME/.kube
+        state: directory
+        mode: 0755
+
+    - name: Copy admin.conf to User's kube config
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ci/.kube/config
+        remote_src: yes
+        owner: ci
+
+    - name: Install Pod Network
+      become: yes
+      become_user: ci
+      shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml >> pod_network_setup.log
+      args:
+        chdir: $HOME
+        creates: pod_network_setup.log
+
+    - name: Restart kubelet service
+      service:
+        name: kubelet
+        daemon-reload: yes
+        state: restarted
+
+    - name: Print join command
+      shell: kubeadm token create --print-join-command
+      register: kubernetes_join_command
+
+    - name: Copy join command to local
+      become: false
+      local_action: copy content="{{ kubernetes_join_command.stdout_lines[0] }}" dest="/tmp/kubernetes_join_command" mode=0777
+
+
+- hosts: workers
+  name: Join workers
+  remote_user: ci
+  become: true
+  tasks:
+    - name: Reset existing cluster
+      shell: kubeadm reset -f
+
+    - name: Remove .kube in user home directory
+      shell: rm -rf .kube
+
+    - name: Remove /etc/kubernetes/manifests directory
+      shell: rm -rf /etc/kubernetes/manifests
+
+    - name: Copy join command to workers
+      copy:
+        src: /tmp/kubernetes_join_command
+        dest: /tmp/kubernetes_join_command
+        mode: 0777
+
+    - name: Check Enable TCP port 6443 (On Master) is able to connect from Worker
+      wait_for:
+        host: "192.168.56.11"
+        port: 6443
+        timeout: 1
+
+    - name: Execute worker join command
+      shell: sh /tmp/kubernetes_join_command
+
+    - name: Restart kubelet service
+      service:
+        name: kubelet
+        daemon-reload: yes
+        state: restarted

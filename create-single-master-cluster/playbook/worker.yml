@@ -1,0 +1,81 @@
+- name: Configure Join Commands on Master Node
+  hosts: masters
+  remote_user: ci
+  become: true
+  tasks:
+    - name: Retrieve Join Command
+      shell: kubeadm token create --print-join-command
+      register: join_command_raw
+
+    - name: Set Join Command
+      set_fact:
+        join_command: "{{ join_command_raw.stdout_lines[0] }}"
+
+---
+
+- hosts: workers
+  name: Join workers
+  remote_user: ci
+  become: true
+  tasks:
+    - name: Reset existing cluster
+      shell: kubeadm reset -f
+
+    - name: Remove .kube in user home directory
+      shell: rm -rf .kube
+
+    - name: Remove /etc/kubernetes/manifests directory
+      shell: rm -rf /etc/kubernetes/manifests
+
+    - name: Copy join command to workers
+      copy:
+        src: /tmp/kubernetes_join_command
+        dest: /tmp/kubernetes_join_command
+        mode: 0777
+
+    - name: Enable TCP port 6443 (On Master) is able to connect from Worker
+      wait_for:
+        host: "192.168.56.11"
+        port: 6443
+        timeout: 1
+
+    - name: Execute worker join command
+      shell: sh /tmp/kubernetes_join_command
+
+    - name: Restart kubelet service
+      service:
+        name: kubelet
+        daemon-reload: yes
+        state: restarted
+---
+#- name: Join Worker Nodes
+#  remote_user: ci
+#  hosts: workers
+#  become: true
+#  vars:
+#    control_plane_endpoint: 192.168.56.11
+#  tasks:
+#    - name: Reset existing cluster
+#      shell: kubeadm reset -f
+#      ignore_errors: yes
+#
+#    - name: Remove .kube in user home directory
+#      shell: rm -rf /home/ci/.kube
+#      ignore_errors: yes
+#
+#    - name: Remove /etc/kubernetes/manifests directory
+#      shell: rm -rf /etc/kubernetes/manifests
+#      ignore_errors: yes
+#
+#    - name: Enable TCP port 6443 (On Master) is able to connect from Worker
+#      wait_for:
+#        host: "192.168.56.11"
+#        port: 6443
+#        timeout: 1
+
+#    - name: Join worker to cluster
+#      shell: "{{ hostvars['192.168.56.11'].join_command }}"
+#      args:
+#        chdir: /home/ci
+#        creates: /home/ci/node_joined.log
+#      become: true

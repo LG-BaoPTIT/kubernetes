@@ -1,0 +1,20 @@
+kind: ClusterConfiguration
+apiVersion: kubeadm.k8s.io/v1beta3
+networking:
+  podSubnet: "10.244.0.0/16"
+controlPlaneEndpoint: "192.168.56.11:6443"
+localAPIEndpoint:
+  advertiseAddress: "192.168.56.11"
+---
+kind: KubeletConfiguration
+apiVersion: kubelet.config.k8s.io/v1beta1
+runtimeRequestTimeout: "15m"
+cgroupDriver: "systemd"
+systemReserved:
+  cpu: 100m
+  memory: 350M
+kubeReserved:
+  cpu: 100m
+  memory: 50M
+enforceNodeAllocatable:
+  - pods

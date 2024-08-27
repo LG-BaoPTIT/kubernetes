@@ -10,8 +10,8 @@
     - name: Update apt package index
       apt:
         update_cache: yes
-
-# Config container runtime (containerd)
+  # https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/#before-you-begin
+  # Config container runtime (containerd)
     - name: Disable swap
       shell: swapoff -a
 
@@ -154,39 +154,32 @@
     control_plane_endpoint: 192.168.56.11
   tasks:
 
-    - name: Create an Empty file for Kubeadm configuring
-      copy:
-        content: ""
-        dest: /etc/kubernetes/kubeadm-config.yaml
-        force: no
+#    - name: Create an Empty file for Kubeadm configuring
+#      copy:
+#        content: ""
+#        dest: /etc/kubernetes/kubeadm-config.yaml
+#        force: no
+#
+#    - name: Copy kubeadm configuration file
+#      copy:
+#        src: ./../kubeadm-config.yaml
+#        dest: /etc/kubernetes/kubeadm-config.yaml
+#        owner: ci
+#        group: ci
+#        mode: '0644'
 
-    - name: Configure container runtime
-      blockinfile:
-        path: /etc/kubernetes/kubeadm-config.yaml
-        block: |
-          kind: ClusterConfiguration
-          apiVersion: kubeadm.k8s.io/v1beta3
-          networking:
-            podSubnet: "10.244.0.0/16"
-          ---
-          kind: KubeletConfiguration
-          apiVersion: kubelet.config.k8s.io/v1beta1
-          runtimeRequestTimeout: "15m"
-          cgroupDriver: "systemd"
-          systemReserved:
-            cpu: 100m
-            memory: 350M
-          kubeReserved:
-            cpu: 100m
-            memory: 50M
-          enforceNodeAllocatable:
-          - pods
 
     - name: Initialize the cluster
+#      shell: kubeadm init --config=/etc/kubernetes/kubeadm-config.yaml --upload-certs >> cluster_initialized.log
       shell: kubeadm init --control-plane-endpoint={{ control_plane_endpoint }}:6443 --upload-certs --apiserver-advertise-address={{ control_plane_endpoint }} --pod-network-cidr=10.244.0.0/16 >> cluster_initialized.log
       args:
         chdir: /home/ci
         creates: cluster_initialized.log
+#
+#    - name: Wait for kubeadm init to complete
+#      wait_for:
+#        path: /etc/kubernetes/admin.conf
+#        timeout: 60
 
     - name: Create .kube directory
       become: yes
@@ -206,7 +199,7 @@
     - name: Install Pod Network
       become: yes
       become_user: ci
-      shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml >> pod_network_setup.log
+      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml >> pod_network_setup.log
       args:
         chdir: $HOME
         creates: pod_network_setup.log
@@ -260,3 +253,13 @@
         name: kubelet
         daemon-reload: yes
         state: restarted
+#        Config kubectl on host
+#        curl -LO "https://dl.k8s.io/release/v1.29.8/bin/linux/amd64/kubectl"
+#        chmod +x ./kubectl
+#        sudo mv ./kubectl /usr/local/bin/kubectl
+#        kubectl version --client
+#        scp ci@192.168.56.11:~/.kube/config ~/.kube/config-mycluster
+
+#        export KUBECONFIG=~/.kube/config:~/.kube/config-mycluster
+#        kubectl config view --flatten > ~/.kube/config_temp
+#        mv ~/.kube/config_temp ~/.kube/config

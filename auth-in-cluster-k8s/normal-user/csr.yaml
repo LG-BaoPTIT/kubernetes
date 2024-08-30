@@ -1,0 +1,12 @@
+apiVersion: certificates.k8s.io/v1
+kind: CertificateSigningRequest
+metadata:
+  name: baolg
+spec:
+  groups:
+    - system:authenticated
+  request: $(cat private.csr | base64 | tr -d '\n')
+  signerName: kubernetes.io/kube-apiserver-client
+  usages:
+    - Client auth
+  expirationSeconds: 86400 #expire after 24 hours

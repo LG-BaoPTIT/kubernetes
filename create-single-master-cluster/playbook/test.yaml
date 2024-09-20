@@ -1,0 +1,9 @@
+- hosts: masters, workers
+  name: Print IP addresses
+  remote_user: ci
+  become: true
+  tasks:
+    - name: Print the IP address of the host
+      debug:
+        msg: "The IP address of {{ inventory_hostname }} is {{ ansible_host }}"
+

@@ -60,7 +60,7 @@ spec:
   request: $(cat private.csr | base64 | tr -d '\n')
   signerName: kubernetes.io/kube-apiserver-client
   usages:
-    - Client auth
+    - client auth
   expirationSeconds: 86400 #expire after 24 hours
 EOF
 ```
@@ -126,7 +126,22 @@ kubectl get csr baolg -o jsonpath='{.status.certificate}' | base64 --decode
 ```
 
 ```shell
+kubectl config view --raw -o yaml | yq eval '.users[].user."client-certificate-data" = "" | .users[].user."client-key-data" = ""' - > config.sh
+
 kubectl config view --raw -o yaml > config.sh
+
+kubectl config view --raw -o yaml | yq eval '
+   .users[] |= ( .user.client-certificate-data = null |
+                 .user.client-key-data = null )' - > config.sh
+
+kubectl config view --raw -o yaml | yq eval '
+  .users[] |= (
+    select(.name == "baolg") |=
+    .user.client-certificate-data = null |
+    .user.client-key-data = null
+  )' - > config.sh
+
+
 ```
 Let's edit file config.sh
 

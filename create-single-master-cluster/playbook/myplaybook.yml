@@ -139,6 +139,12 @@
       command: |
         apt-mark hold kubelet kubeadm kubectl
 
+    - name: Set KUBELET_EXTRA_ARGS to use specific node IP
+      lineinfile:
+        path: /etc/default/kubelet
+        regexp: '^KUBELET_EXTRA_ARGS='
+        line: 'KUBELET_EXTRA_ARGS=--node-ip={{ ansible_host }}'
+
     - name: Enable and start kubelet service
       systemd:
         name: kubelet
@@ -199,7 +205,8 @@
     - name: Install Pod Network
       become: yes
       become_user: ci
-      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml >> pod_network_setup.log
+      shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml >> pod_network_setup.log
+#      shell: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml >> pod_network_setup.log
       args:
         chdir: $HOME
         creates: pod_network_setup.log
@@ -253,6 +260,7 @@
         name: kubelet
         daemon-reload: yes
         state: restarted
+
 #        Config kubectl on host
 #        curl -LO "https://dl.k8s.io/release/v1.29.8/bin/linux/amd64/kubectl"
 #        chmod +x ./kubectl

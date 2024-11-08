@@ -8,7 +8,7 @@ Vagrant.configure("2") do |config|
             config.vm.box = "generic/ubuntu2204"
             master.vm.box_version = "4.3.12"
             master.vm.hostname = "k8s-master-#{i}"
-            master.vm.network "private_network", ip: "192.168.56.1#{i}"
+            master.vm.network "private_network", ip: "192.168.57.2#{i}"
 
             master.vm.provider "virtualbox" do |vb|
                 vb.name = "k8s-master-#{i}"
@@ -19,7 +19,7 @@ Vagrant.configure("2") do |config|
     end
 
     # Worker Nodes
-    WorkerCount = 1
+    WorkerCount = 2
     (1..WorkerCount).each do |i|
         config.vm.define "k8s-worker-#{i}" do |worker|
             worker.vm.box = "generic/ubuntu2204"
@@ -36,7 +36,7 @@ Vagrant.configure("2") do |config|
     end
 
     config.vm.provision "shell" do |s|
-        ssh_pub_key = File.readlines("#{Dir.home}/.ssh/id_rsa.pub").first.strip
+        ssh_pub_key = File.readlines("#{Dir.home}/.ssh/id_k8sCluster_rsa.pub").first.strip
         s.inline = <<-SHELL
             # Create ci user
             useradd -s /bin/bash -d /home/ci/ -m -G sudo ci

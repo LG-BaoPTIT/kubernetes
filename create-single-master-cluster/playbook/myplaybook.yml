@@ -157,7 +157,7 @@
   remote_user: ci
   become: yes
   vars:
-    control_plane_endpoint: 192.168.56.11
+    control_plane_endpoint: 192.168.57.21
   tasks:
 
 #    - name: Create an Empty file for Kubeadm configuring
@@ -205,7 +205,8 @@
     - name: Install Pod Network
       become: yes
       become_user: ci
-      shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml >> pod_network_setup.log
+      shell: kubectl apply -f https://calico-v3-25.netlify.app/archive/v3.25/manifests/calico.yaml
+#      shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml >> pod_network_setup.log
 #      shell: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml >> pod_network_setup.log
       args:
         chdir: $HOME
@@ -248,7 +249,7 @@
 
     - name: Check Enable TCP port 6443 (On Master) is able to connect from Worker
       wait_for:
-        host: "192.168.56.11"
+        host: "192.168.57.21"
         port: 6443
         timeout: 1
 
@@ -266,7 +267,7 @@
 #        chmod +x ./kubectl
 #        sudo mv ./kubectl /usr/local/bin/kubectl
 #        kubectl version --client
-#        scp ci@192.168.56.11:~/.kube/config ~/.kube/config-mycluster
+#        scp ci@192.168.57.13:~/.kube/config ~/.kube/config-mycluster
 
 #        export KUBECONFIG=~/.kube/config:~/.kube/config-mycluster
 #        kubectl config view --flatten > ~/.kube/config_temp
